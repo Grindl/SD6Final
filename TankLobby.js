@@ -428,10 +428,14 @@ var joinRoomResponse = function(inPacket, currentClient)
 
 var gameUpdateResponse = function(inPacket, currentClient)
 {
-    //@TODO only update if it's the most recent update packet
-    //update client's position in the room
-    currentClient.unit = inPacket.GameUpdatePacket;
-    //@TODO possibly ignore updates shortly after a reset/respawn
+    //only update if it's the most recent update packet
+    if(currentClient.lastReceivedByType[TYPE_GameUpdate] < inPacket.number)
+    {
+        //update client's position in the room
+        currentClient.unit = inPacket.GameUpdatePacket;
+        currentClient.lastReceivedByType[TYPE_GameUpdate] = inPacket.number;
+        //@TODO possibly ignore updates shortly after a reset/respawn
+    }
 }
 
 //no game reset response
@@ -488,9 +492,30 @@ var packetResponse = function(inPacket, currentClient)
     
     if(currentClient.lastSentUpdateTime < Date.now() - 50)
     {
-        //@TODO if enough time has passed, and they are in a room, give them a game update
-        //foreach person in their room
-        //pack up their unit, and send it to this person
+        //if enough time has passed, and they are in a room, give them a game update
+        if(currentClient.roomIn != 0)
+        {
+            //foreach person in their room
+            clientMap.each(function (nextClient)
+            {
+                if(nextClient.roomIn == currentClient.roomIn)
+                {
+                    //pack up their unit, and send it to this person
+                    var outUpdateObj = new TankPacket();
+                    outUpdateObj.packetType = TYPE_GameUpdate;
+                    outUpdateObj.clientID = nextClient.clientID;
+                    currentClient.number++;
+                    outUpdateObj.number = currentClient.number;
+                    outUpdateObj.timestamp = Date.now();
+
+                    outUpdateObj.GameUpdatePacket = nextClient.unit;
+
+                    var outPacket = packForSend(outUpdateObj);
+                    //console.log("Sending update on time loop room "+currentClient.address+':'+currentClient.port+" of length "+outPacket.length);
+                    udpServer.send(outPacket, 0, outPacket.length, currentClient.port, currentClient.address);
+                }
+            });
+        }
         currentClient.lastSentUpdateTime = Date.now();
     }
 
@@ -500,51 +525,51 @@ var packetResponse = function(inPacket, currentClient)
 
 //==========================================================================================
 
-var parsePacket = function(inPacket, inSender)
-{
-    var unpackedPacket = unpackPacket(inPacket);
-    var packetType = inPacket.readUInt8(0);
-    if (packetType === 5) 
-    {
-        //is a join room
-        var roomNum = inPacket.readUInt8(16);//start of packet meat
-        if (roomNum === 0) 
-        {
-            console.log("Joined Lobby\n");
-            //TODO send ack
-            var outPacket = new Buffer(48);
-            outPacket[0] = 1;
-            outPacket[16] = 5;
-            udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
-            var lobbyOutPacket = new Buffer(48);
-            lobbyOutPacket[0] = 6;
-            udpServer.send(lobbyOutPacket, 0, lobbyOutPacket.length, inSender.port, inSender.address);
-        }
-        else
-        {
-            //TODO check the room exitsts, but for now, send a nack
-            var outPacket = new Buffer(48);
-            outPacket[0] = 2;
-            outPacket[16] = 5;
-            udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
-        }
-    }
-    else if(packetType === 3)
-    {
-        console.log("Got keepalive\n");
-        //send them the lobby
-        var outPacket = new Buffer(48);
-        outPacket[0] = 6;
-        udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
-    }
-
-}
-
-
-var sendToRoom = function(roomMap, outPacket)
-{
-
-}
+//var parsePacket = function(inPacket, inSender)
+//{
+//    var unpackedPacket = unpackPacket(inPacket);
+//    var packetType = inPacket.readUInt8(0);
+//    if (packetType === 5) 
+//    {
+//        //is a join room
+//        var roomNum = inPacket.readUInt8(16);//start of packet meat
+//        if (roomNum === 0) 
+//        {
+//            console.log("Joined Lobby\n");
+//            //TODO send ack
+//            var outPacket = new Buffer(48);
+//            outPacket[0] = 1;
+//            outPacket[16] = 5;
+//            udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
+//            var lobbyOutPacket = new Buffer(48);
+//            lobbyOutPacket[0] = 6;
+//            udpServer.send(lobbyOutPacket, 0, lobbyOutPacket.length, inSender.port, inSender.address);
+//        }
+//        else
+//        {
+//            //TODO check the room exitsts, but for now, send a nack
+//            var outPacket = new Buffer(48);
+//            outPacket[0] = 2;
+//            outPacket[16] = 5;
+//            udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
+//        }
+//    }
+//    else if(packetType === 3)
+//    {
+//        console.log("Got keepalive\n");
+//        //send them the lobby
+//        var outPacket = new Buffer(48);
+//        outPacket[0] = 6;
+//        udpServer.send(outPacket, 0, outPacket.length, inSender.port, inSender.address);
+//    }
+//
+//}
+//
+//
+//var sendToRoom = function(roomMap, outPacket)
+//{
+//
+//}
 
 
 var sendToAll = function (currentClient) 
@@ -569,6 +594,8 @@ udpServer.on('message', function (msg, sender) {
         nextClientID++;
         sender.roomIn = 0;
         sender.number = 0;
+        sender.lastReceivedByType = [0,0,0,0,0,0,0,0,0,0,0,0,0];
+        sender.pendingGuaranteedPackets = new Map();
         sender.lastSentUpdateTime = Date.now();
         console.log("New client at time " + Date.now() + " : " + sender.address + ':' + sender.port + ' ID: ' + sender.clientID + '\n');
         clientsInRoomsMap[0].set(sender.address + ':' + sender.port, sender);
