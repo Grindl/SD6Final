@@ -241,12 +241,14 @@ var getNumInRoom = function(roomToCount)
 
 var ackResponse = function(inPacket, currentClient)
 {
-    //@TODO loop through pending packets in the client's guaranteed delivery queue, and remove the corresponding ones
+    //loop through pending packets in the client's guaranteed delivery queue, and remove the corresponding ones
+    currentClient.pendingGuaranteedPackets.remove(inPacket.AckPacket.number);
 }
 
 var nackResponse = function(inPacket, currentClient)
 {
-    //@TODO loop through pending packets in the client's guaranteed delivery queue, and remove the corresponding ones
+    //loop through pending packets in the client's guaranteed delivery queue, and remove the corresponding ones
+    currentClient.pendingGuaranteedPackets.remove(inPacket.NackPacket.number);
 }
 
 var keepaliveResponse = function(inPacket, currentClient)
@@ -287,8 +289,35 @@ var createRoomResponse = function(inPacket, currentClient)
             //put them in it
             clientsInRoomsMap[roomNum].set(currentClient.address+':'+currentClient.port, currentClient);
             currentClient.roomIn = roomNum;
-            //@TODO and init them
-            //@TODO also send them a game reset
+            //and init them
+            currentClient.unit.xPosition = 500 * Math.random();
+            currentClient.unit.yPosition = 500 * Math.random();
+            currentClient.unit.xVelocity = 0;
+            currentClient.unit.yVelocity = 0;
+            currentClient.unit.xAcceleration = 0;
+            currentClient.unit.yAcceleration = 0;
+            currentClient.unit.orientationDegrees = 0;
+            currentClient.unit.health = 1;
+            currentClient.unit.score = 0;
+            //also send them a game reset
+            var outResetObj = new TankPacket();
+            outResetObj.packetType = TYPE_GameReset;
+            outResetObj.clientID = currentClient.clientID;
+            currentClient.number++;
+            outResetObj.number = currentClient.number;
+            outResetObj.timestamp = Date.now();
+
+            outResetObj.GameResetPacket = {};
+            outResetObj.GameResetPacket.xPosition = currentClient.unit.xPosition;
+            outResetObj.GameResetPacket.yPosition = currentClient.unit.yPosition;
+            outResetObj.GameResetPacket.orientationDegrees = currentClient.unit.orientationDegrees;
+            outResetObj.GameResetPacket.id = currentClient.clientID;
+
+            //make this reliable
+            var outResetPacket = packForSend(outResetObj);
+            console.log("Sending reset for joinroom "+currentClient.address+':'+currentClient.port+" of length "+outResetPacket.length);
+            udpServer.send(outResetPacket, 0, outResetPacket.length, currentClient.port, currentClient.address);
+            currentClient.pendingGuaranteedPackets.set(outResetObj.number, outResetObj);
             wasSuccessful = true;
         }
     }
@@ -365,7 +394,7 @@ var joinRoomResponse = function(inPacket, currentClient)
         }
 
         var outLobbyPacket = packForSend(lobbyOutObj);
-        console.log("Sending Lobby update for keepalive "+currentClient.address+':'+currentClient.port+" of length "+outLobbyPacket.length);
+        console.log("Sending Lobby update for joinlobby "+currentClient.address+':'+currentClient.port+" of length "+outLobbyPacket.length);
         udpServer.send(outLobbyPacket, 0, outLobbyPacket.length, currentClient.port, currentClient.address);
     }
     else if(roomNum <= 8 && roomNum > 0)
@@ -377,8 +406,36 @@ var joinRoomResponse = function(inPacket, currentClient)
             //put them in it
             clientsInRoomsMap[roomNum].set(currentClient.address+':'+currentClient.port, currentClient);
             currentClient.roomIn = roomNum;
-            //@TODO and init them
-            //@TODO also send them a game reset
+            //and init them
+            currentClient.unit.xPosition = 500 * Math.random();
+            currentClient.unit.yPosition = 500 * Math.random();
+            currentClient.unit.xVelocity = 0;
+            currentClient.unit.yVelocity = 0;
+            currentClient.unit.xAcceleration = 0;
+            currentClient.unit.yAcceleration = 0;
+            currentClient.unit.orientationDegrees = 0;
+            currentClient.unit.health = 1;
+            currentClient.unit.score = 0;
+            //also send them a game reset
+            var outResetObj = new TankPacket();
+            outResetObj.packetType = TYPE_GameReset;
+            outResetObj.clientID = currentClient.clientID;
+            currentClient.number++;
+            outResetObj.number = currentClient.number;
+            outResetObj.timestamp = Date.now();
+
+            outResetObj.GameResetPacket = {};
+            outResetObj.GameResetPacket.xPosition = currentClient.unit.xPosition;
+            outResetObj.GameResetPacket.yPosition = currentClient.unit.yPosition;
+            outResetObj.GameResetPacket.orientationDegrees = currentClient.unit.orientationDegrees;
+            outResetObj.GameResetPacket.id = currentClient.clientID;
+
+            //make this reliable
+            var outResetPacket = packForSend(outResetObj);
+            console.log("Sending reset for joinroom "+currentClient.address+':'+currentClient.port+" of length "+outResetPacket.length);
+            udpServer.send(outResetPacket, 0, outResetPacket.length, currentClient.port, currentClient.address);
+            currentClient.pendingGuaranteedPackets.set(outResetObj.number, outResetObj);
+
             wasSuccessful = true;
         }
     }
@@ -432,7 +489,9 @@ var gameUpdateResponse = function(inPacket, currentClient)
     if(currentClient.lastReceivedByType[TYPE_GameUpdate] < inPacket.number)
     {
         //update client's position in the room
+
         currentClient.unit = inPacket.GameUpdatePacket;
+        //console.log("recv update from "+currentClient.address+':'+currentClient.port+"  "+currentClient.unit.xPosition+","+currentClient.unit.yPosition);
         currentClient.lastReceivedByType[TYPE_GameUpdate] = inPacket.number;
         //@TODO possibly ignore updates shortly after a reset/respawn
     }
@@ -446,9 +505,56 @@ var gameUpdateResponse = function(inPacket, currentClient)
 
 var fireResponse = function(inPacket, currentClient)
 {
-    //@TODO guaranteed echo to all in room
-    //@TODO check for impact
-    //@TODO if impact, guaranteed hit to all in room
+    var outAckObj = new TankPacket();
+    outAckObj.packetType = TYPE_Ack;
+    outAckObj.clientID = currentClient.clientID;
+    currentClient.number++;
+    outAckObj.number = currentClient.number;
+    outAckObj.timestamp = Date.now();
+
+    outAckObj.AckPacket = {};
+    outAckObj.AckPacket.packetType = inPacket.packetType;
+    outAckObj.AckPacket.number = inPacket.number;
+
+    var outAckPacket = packForSend(outAckObj);
+    console.log("Sending Ack for fire "+currentClient.address+':'+currentClient.port+" of length "+outAckPacket.length);
+    udpServer.send(outAckPacket, 0, outAckPacket.length, currentClient.port, currentClient.address);
+    //echo to all in room
+    clientMap.each(function (nextClient)
+    {
+        if(nextClient.value().roomIn == currentClient.roomIn)
+        {
+            //@TODO make this guaranteed
+            //@TODO the packet number on this is wrong
+            var firePacket = packForSend(inPacket);
+            udpServer.send(firePacket, 0, firePacket.length, nextClient.value().port, nextClient.value().address);
+            //@TODO check for impact
+            //if impact, guaranteed hit to all in room
+            clientMap.each(function (echoClient)
+            {
+                if(echoClient.value().roomIn == currentClient.roomIn)
+                {
+                    var outHitObj = new TankPacket();
+                    outHitObj.packetType = TYPE_Hit;
+                    outHitObj.clientID = currentClient.clientID;
+                    currentClient.number++;
+                    outHitObj.number = currentClient.number;
+                    outHitObj.timestamp = Date.now();
+
+                    outHitObj.HitPacket = {};
+                    outHitObj.HitPacket.instigatorID = currentClient.clientID;
+                    outHitObj.HitPacket.targetID = nextClient.value().clientID;
+                    outHitObj.HitPacket.damageDealt = 1;
+
+                    //make this guaranteed
+                    var outHitPacket = packForSend(outHitObj);
+                    console.log("Sending Hit for Fire "+echoClient.value().address+':'+echoClient.value().port+" of length "+outHitPacket.length);
+                    udpServer.send(outHitPacket, 0, outHitPacket.length, echoClient.value().port, echoClient.value().address);
+                    echoClient.value().pendingGuaranteedPackets.set(outHitObj.number, outHitObj);
+                }
+            });
+        }
+    });
 }
 
 //no return to lobby response
@@ -489,38 +595,59 @@ var packetResponse = function(inPacket, currentClient)
     {
         //@TODO send them a nack; bad packet ID
     }
-    
-    if(currentClient.lastSentUpdateTime < Date.now() - 50)
+    //update the current time for the user
+    currentClient.lastMessageTime = Date.now();
+}
+
+var updateThisClient = function(currentClient)
+{
+    if (currentClient.value().LastMessageTime < Date.now() - 5000) 
+    {
+        console.log('Removing  IP: ' + currentClient.value().address + ':' + currentClient.value().port + '\n');
+        clientMap.remove(currentClient);
+    }
+    else
     {
         //if enough time has passed, and they are in a room, give them a game update
-        if(currentClient.roomIn != 0)
+        if(currentClient.value().roomIn != 0)
         {
             //foreach person in their room
             clientMap.each(function (nextClient)
             {
-                if(nextClient.roomIn == currentClient.roomIn)
+                if(nextClient.value().roomIn == currentClient.value().roomIn)
                 {
                     //pack up their unit, and send it to this person
                     var outUpdateObj = new TankPacket();
                     outUpdateObj.packetType = TYPE_GameUpdate;
-                    outUpdateObj.clientID = nextClient.clientID;
-                    currentClient.number++;
-                    outUpdateObj.number = currentClient.number;
+                    outUpdateObj.clientID = nextClient.value().clientID;
+                    currentClient.value().number++;
+                    outUpdateObj.number = currentClient.value().number;
                     outUpdateObj.timestamp = Date.now();
 
-                    outUpdateObj.GameUpdatePacket = nextClient.unit;
+                    outUpdateObj.GameUpdatePacket = nextClient.value().unit;
 
                     var outPacket = packForSend(outUpdateObj);
-                    //console.log("Sending update on time loop room "+currentClient.address+':'+currentClient.port+" of length "+outPacket.length);
-                    udpServer.send(outPacket, 0, outPacket.length, currentClient.port, currentClient.address);
+                    //console.log("Sending update on time loop room "+currentClient.value().address+':'+currentClient.value().port+"    "+nextClient.value().unit.xPosition+","+nextClient.value().unit.yPosition);
+                    udpServer.send(outPacket, 0, outPacket.length, currentClient.value().port, currentClient.value().address);
                 }
             });
-        }
-        currentClient.lastSentUpdateTime = Date.now();
-    }
 
-    //update the current time for the user
-    currentClient.lastMessageTime = Date.now();
+            currentClient.value().pendingGuaranteedPackets.each(function (nextPacket)
+            {
+                var outPacket = packForSend(nextPacket.value());
+                //console.log("Sending guaranteed on time loop room "+currentClient.value().address+':'+currentClient.value().port+" of length "+outPacket.length);
+                udpServer.send(outPacket, 0, outPacket.length, currentClient.value().port, currentClient.value().address);
+            });
+        }
+        currentClient.value().lastSentUpdateTime = Date.now();
+    }
+    
+}
+
+var updateClients = function()
+{
+    clientMap.each(updateThisClient);
+    setTimeout(updateClients, 50);
 }
 
 //==========================================================================================
@@ -594,6 +721,7 @@ udpServer.on('message', function (msg, sender) {
         nextClientID++;
         sender.roomIn = 0;
         sender.number = 0;
+        sender.unit = {};
         sender.lastReceivedByType = [0,0,0,0,0,0,0,0,0,0,0,0,0];
         sender.pendingGuaranteedPackets = new Map();
         sender.lastSentUpdateTime = Date.now();
@@ -609,3 +737,5 @@ udpServer.on('message', function (msg, sender) {
     //parsePacket(msg, sender);
     packetResponse(msg, foundSender);
 });
+
+setTimeout(updateClients, 50);
