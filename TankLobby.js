@@ -539,30 +539,63 @@ var fireResponse = function(inPacket, currentClient)
             nextClient.value().pendingGuaranteedPackets.set(fireObj.number, fireObj);
 
             //@TODO check for impact
+            var Ox = Math.cos(currentClient.unit.orientationDegrees);
+            var Oy = Math.sin(currentClient.unit.orientationDegrees);
+            var Tx = nextClient.value().unit.xPosition - currentClient.unit.xPosition;
+            var Ty = nextClient.value().unit.yPosition - currentClient.unit.yPosition;
+            var Tperx = Tx - (Tx*Ox + Ty*Oy) * Ox;
+            var Tpery = Ty - (Tx*Ox + Ty*Oy) * Oy;
+            var distance = Math.sqrt(Tperx*Tperx + Tpery*Tpery);
             //if impact, guaranteed hit to all in room
-            clientMap.each(function (echoClient)
+            if(distance < 10 && currentClient.clientID != nextClient.value().clientID)
             {
-                if(echoClient.value().roomIn == currentClient.roomIn)
+                clientMap.each(function (echoClient)
                 {
-                    var outHitObj = new TankPacket();
-                    outHitObj.packetType = TYPE_Hit;
-                    outHitObj.clientID = currentClient.clientID;
-                    currentClient.number++;
-                    outHitObj.number = currentClient.number;
-                    outHitObj.timestamp = Date.now();
+                    if(echoClient.value().roomIn == currentClient.roomIn)
+                    {
+                        var outHitObj = new TankPacket();
+                        outHitObj.packetType = TYPE_Hit;
+                        outHitObj.clientID = currentClient.clientID;
+                        echoClient.value().number++;
+                        outHitObj.number = echoClient.value().number;
+                        outHitObj.timestamp = Date.now();
 
-                    outHitObj.HitPacket = {};
-                    outHitObj.HitPacket.instigatorID = currentClient.clientID;
-                    outHitObj.HitPacket.targetID = nextClient.value().clientID;
-                    outHitObj.HitPacket.damageDealt = 1;
+                        outHitObj.HitPacket = {};
+                        outHitObj.HitPacket.instigatorID = currentClient.clientID;
+                        outHitObj.HitPacket.targetID = nextClient.value().clientID;
+                        outHitObj.HitPacket.damageDealt = 1;
 
-                    //make this guaranteed
-                    var outHitPacket = packForSend(outHitObj);
-                    console.log("Sending Hit for Fire "+echoClient.value().address+':'+echoClient.value().port+" of length "+outHitPacket.length);
-                    udpServer.send(outHitPacket, 0, outHitPacket.length, echoClient.value().port, echoClient.value().address);
-                    echoClient.value().pendingGuaranteedPackets.set(outHitObj.number, outHitObj);
-                }
-            });
+                        //make this guaranteed
+                        var outHitPacket = packForSend(outHitObj);
+                        console.log("Sending Hit for Fire "+echoClient.value().address+':'+echoClient.value().port+" of length "+outHitPacket.length);
+                        udpServer.send(outHitPacket, 0, outHitPacket.length, echoClient.value().port, echoClient.value().address);
+                        echoClient.value().pendingGuaranteedPackets.set(outHitObj.number, outHitObj);
+                    }
+                });
+
+                //and respawn the target
+                nextClient.value().unit.xPosition = 500 * Math.random();
+                nextClient.value().unit.yPosition = 500 * Math.random();
+                nextClient.value().unit.orientationDegrees = 0;
+
+                var outRespawnObj = new TankPacket();
+                outRespawnObj.packetType = TYPE_Respawn;
+                outRespawnObj.clientID = nextClient.value().clientID;
+                nextClient.value().number++;
+                outRespawnObj.number = nextClient.value().number;
+                outRespawnObj.timestamp = Date.now();
+
+                outRespawnObj.RespawnPacket = {};
+                outRespawnObj.RespawnPacket.xPosition = nextClient.value().unit.xPosition;
+                outRespawnObj.RespawnPacket.yPosition = nextClient.value().unit.yPosition;
+                outRespawnObj.RespawnPacket.orientationDegrees = nextClient.value().unit.orientationDegrees;
+
+                //make this guaranteed
+                var outRespawnPacket = packForSend(outRespawnObj);
+                console.log("Sending Respawn for Fire "+nextClient.value().address+':'+nextClient.value().port+" of length "+outRespawnPacket.length);
+                udpServer.send(outRespawnPacket, 0, outRespawnPacket.length, nextClient.value().port, nextClient.value().address);
+                nextClient.value().pendingGuaranteedPackets.set(outRespawnObj.number, outRespawnObj);
+            }
         }
     });
 }
