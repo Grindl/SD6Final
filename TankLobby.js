@@ -524,10 +524,20 @@ var fireResponse = function(inPacket, currentClient)
     {
         if(nextClient.value().roomIn == currentClient.roomIn)
         {
-            //@TODO make this guaranteed
-            //@TODO the packet number on this is wrong
-            var firePacket = packForSend(inPacket);
+            var fireObj = new TankPacket();
+            fireObj.packetType = TYPE_Fire;
+            fireObj.clientID = currentClient.clientID;
+            nextClient.value().number++;
+            fireObj.number = nextClient.value().number;
+            fireObj.timestamp = Date.now();
+
+            fireObj.GunfirePacket = {};
+            fireObj.GunfirePacket.instigatorID = currentClient.clientID;
+
+            var firePacket = packForSend(fireObj);
             udpServer.send(firePacket, 0, firePacket.length, nextClient.value().port, nextClient.value().address);
+            nextClient.value().pendingGuaranteedPackets.set(fireObj.number, fireObj);
+
             //@TODO check for impact
             //if impact, guaranteed hit to all in room
             clientMap.each(function (echoClient)
